@@ -1,0 +1,281 @@
+---
+title: "RT Network Analysis - Metric Exploration"
+author: "Harshini Karthikeyan, Alex Ralston, Jack Colt, Chelsey Harper"
+format: 
+  html:
+    embed-resources: true
+    code-tools: true
+    code-fold: true
+    toc: true
+    number-sections: false
+editor: source
+execute: 
+  error: true
+  echo: true
+  message: false
+  warning: false
+---
+
+```{r}
+library(tidyverse)
+library(purrr)
+library(lubridate)
+library(kableExtra)
+devtools::load_all("../")
+```
+
+
+## Variants of Betweenness
+
+
+### Standard Betweenness Centrality
+
+**What is betweenness centrality?**
+\
+The sum of probabilities of passing through a given node on the shortest path between two others. 
+
+**What it describes in the network:**
+\
+Betweenness highlights individuals who facilitate direct and indirect interactions between nodes. It captures a quality of bridging two nodes, but not necessarily bridging between two clusters or political factions, in our case. 
+
+**Why does this fall short when considering our research questions?**
+\
+Betweenness needs to be modified to capture the moderating behavior between Government and Opposition. It's also not a direct indication of local bridging behavior, really more of a global view. Standard betweenness doesn't take weights into account; also assumes shortest paths are the relevant paths. 
+
+**Formula:**
+ $$
+C_B(v) = \sum_{s \neq v \neq t}\frac{\sigma_{st}(v)}{\sigma_{st}}$$
+
+
+
+Where:
+\
+- $\sigma_{st}$: Total number of shortest paths from node $s$ to node $t$.
+\
+- $\sigma_{st}(v)$: Number of shortest paths from node $s$ to $t$ that pass through $v$.
+
+### Candidate Variant #1
+
+**What are we altering?**
+\
+Instead of considering the shortest path between every pair of nodes, we only use distinct pairs of nodes with opposing affiliation (Government and Opposition). 
+
+Here we only evaluate the ability of a node to bridge the gap between the factions. 
+
+We ignore connectivity within each faction, since this is not relevant to our research.
+
+**Formula:**
+ $$
+C_B(v) = \sum_{o \neq v \neq g}\frac{\sigma_{og}(v)}{\sigma_{og}}$$
+
+Where:
+\
+- $\sigma_{og}$: Total number of shortest paths from node $o$, an opposition node, to node $g$, a government node.
+\
+- $\sigma_{og}(v)$: Number of shortest paths from node $o$ to $g$ that pass through $v$.
+
+**Concerns / Potential Pitfalls:**
+\
+Large, dense clusters can skew the centrality, inflating the scores of nodes because they lie on multiple paths within the same cluster. This could mask who is genuinely "important" as a moderator.
+\
+Perhaps indirect interactions are not as important as direct interactions, in which case the global nature of this method doesn't help us in our research. 
+
+#### Exploring this Variant (Cross-Betweenness)
+
+Below we'll share a glimpse at the top 20 highest cross-betweenness results. The results are currently calculated for a single year. This is only because our function needs to be optimized (happening soon). 
+
+The highest cross-betweenness results are exhibited by **Walerian Pańko** in 1982 and **Kazimierz Obsadny** in 1987. 
+
+```{r}
+# loading results of candidate variant #1 "Cross Betweenness"
+cb_by_year <- read_csv("cb_initial_results.csv")
+
+cb_by_year |> arrange(desc(CrossBetweenness)) |> 
+  slice_max(order_by = CrossBetweenness, n = 20) |> 
+  kable(format = "html", caption = "Highest 20 Cross-Betweenness Results") |> 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+```
+
+When we compare **Jacek Kuroń** and **Lech Wałęsa** as Dr. Bodwin suggested, we see their cross-betweenness plots exhibit the predicted inversion. 
+
+```{r fig.width= 8}
+# Comparing Walesa and Kuron as suggested by Bodwin
+
+cb_by_year |> 
+  filter(Full.Name %in% c("Jacek Kuroń", "Lech Wałęsa")) |> 
+    ggplot(mapping = aes(x = Start.Date,
+                       y = CrossBetweenness,
+                       group = Member.ID,
+                       color = Full.Name)) +
+  geom_line(linewidth = .75) +
+  geom_point() +
+  labs(title = 'Examining Cross-Betweenness in Kuroń and Wałęsa',
+       x = 'Year', 
+       y = 'Cross-Betweenness',
+       color = '') +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+```
+
+Now, we find the individuals with the highest cross-betweenness on average. Plotting their scores, we see consistently high cb from **Andrzej Ziabicki** and **Jan Waleczek**, but **Stefan Jurczak** and **Tadeusz Zieliński** really spike in the later years.
+
+```{r fig.width = 10}
+# I would like to see what individuals have the highest cross-betweenness on average
+# filter the data down to include only these
+# then visualize
+
+top_5 <- cb_by_year |>
+  group_by(Member.ID) |>
+  summarise(avg_cb = mean(CrossBetweenness),
+            Full.Name = first(Full.Name),
+            RT.Affiliation = first(RT.Affiliation)) |>
+  arrange(desc(avg_cb)) |>
+  slice_max(order_by = avg_cb, n = 5) 
+
+top_5 |>
+  kable(format = "html", caption = "Highest 5 Average Cross-Betweenness Over Time") |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+
+cb_top_5_plot <- cb_by_year |> 
+  semi_join(top_5, by = 'Member.ID') 
+
+cb_top_5_plot |>
+  ggplot(aes(x = Start.Date, y = CrossBetweenness, color = Full.Name)) +
+  geom_line(linewidth = 0.75) +
+  # geom_point() +
+  theme_bw() +
+  labs(title = "Cross-Betweenness For Highest Average CB Individuals",
+       x = "Year",
+       y = "Cross-Betweenness",
+       color = "") +
+   theme(plot.title = element_text(face = "bold", size = 18),
+        legend.text = element_text(size = 12))
+
+```
+
+Here we look at 5 experts with highest average cross-betweenness scores. 
+
+```{r fig.width = 10}
+
+top_5_experts <- cb_by_year |>
+  filter(RT.Affiliation == c("Expert")) |> 
+  group_by(Member.ID) |>
+  summarise(avg_cb = mean(CrossBetweenness),
+            Full.Name = first(Full.Name)) |>
+  arrange(desc(avg_cb)) |>
+  slice_max(order_by = avg_cb, n = 5) 
+
+cb_top_5_expert_plot <- cb_by_year |> 
+  semi_join(top_5_experts, by = 'Member.ID') 
+
+top_5_experts |>
+  kable(format = "html", caption = "Highest Average Cross-Betweenness Experts Over Time") |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+cb_top_5_expert_plot |>
+  ggplot(aes(x = Start.Date, y = CrossBetweenness, color = Full.Name)) +
+  geom_line(linewidth = 0.75) +
+  # geom_point() +
+  theme_bw() +
+  labs(title = "Cross-Betweenness For Highest Average CB Experts",
+       x = "Year",
+       y = "Cross-Betweenness",
+       color = "") +
+   theme(plot.title = element_text(face = "bold", size = 18),
+        legend.text = element_text(size = 12))
+
+
+```
+
+```{r fig.width = 8}
+# Comparing Pańko and Obsadny
+
+cb_by_year |> 
+  filter(Full.Name %in% c("Walerian Pańko", "Kazimierz Obsadny")) |> 
+    ggplot(mapping = aes(x = Start.Date,
+                       y = CrossBetweenness,
+                       group = Member.ID,
+                       color = Full.Name)) +
+  geom_line(linewidth = .75) +
+  geom_point() +
+  labs(title = 'Examining Cross-Betweenness in Pańko and Obsadny',
+       x = 'Year', 
+       y = 'Cross-Betweenness',
+       color = '') +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+
+```
+
+These high spikes definitely pique our interest. **Pańko's** spike in 1982 corresponds with when he left PZPR. We took a look at the network app around this time and saw behavior in the graph that seems to validate our metric calculation. 
+
+##### Walerian Pańko -- 1979
+
+![Pańko 1979](/Users/chelseyharper/Downloads/panko_1979.png)
+
+##### Walerian Pańko -- 1980
+
+![Pańko 1980](/Users/chelseyharper/Downloads/panko_1980.png)
+
+##### Walerian Pańko -- 1981
+
+![Pańko 1981](/Users/chelseyharper/Downloads/panko_1981.png)
+
+
+
+##### Walerian Pańko -- 1983
+
+![Pańko 1983](/Users/chelseyharper/Downloads/panko_1983.png)
+
+
+
+### Candidate Variant #2
+
+**What are we altering?**
+\
+We still consider the shortest paths between pairs of nodes of opposing factions, but to combat the score inflation from large organizations, we introduce a normalizing factor. 
+\
+We divide by the product of cluster sizes of each of the target nodes. 
+
+
+**Formula:**
+ $$
+C_B(v) = \sum_{o \neq v \neq g}\frac{\sigma_{og}(v)}{\sigma_{og}} \cdot \frac{1}{|C_o| \cdot |C_g|}$$
+
+
+
+Where:
+\
+- $\sigma_{og}$: Total number of shortest paths from node $o$, an opposition node, to node $g$, a government node.
+\
+- $\sigma_{og}(v)$: Number of shortest paths from node $o$ to $g$ that pass through $v$.
+\
+- $|C_o|$: Size of the cluster containing node $o$. 
+\
+- $|C_g|$: Size of the cluster containing node $g$.
+
+**Concerns / Potential Pitfalls:**
+\
+We are still considering indirect interactions here, which may or may not be appropriate. 
+\
+While mitigating against large clusters skewing the results, we may be giving undue influence to smaller clusters. Perhaps adjusting the normalization by some factor could help. 
+
+
+
+## Up Next 
+
+- variant that adjusts the normalization factor
+
+- variant that explores a decay factor to limit how much indirect interactions contribute. 
+
+- variant that considers only direct paths. 
+
+- variants of other standard metrics - like eigen centrality 
+
+- exploring ratio idea
+
