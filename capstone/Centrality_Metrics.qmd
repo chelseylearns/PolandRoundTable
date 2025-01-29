@@ -232,7 +232,30 @@ These high spikes definitely pique our interest. **Pańko's** spike in 1982 corr
 
 ![Pańko 1983](/Users/chelseyharper/Downloads/panko_1983.png)
 
+Dr. Domber also suggested taking a look at two individuals that may be good examples of potential moderation **Wladyslaw Sila-Nowick** and **Wojciech Lamentowicz**. 
 
+
+```{r fig.width = 8}
+# Comparing Wladyslaw Sila-Nowicki and Wojciech Lamentowicz
+
+cb_by_year |> 
+  filter(Member.ID %in% c("MEM0252", "MEM0115")) |> 
+    ggplot(mapping = aes(x = Start.Date,
+                       y = CrossBetweenness,
+                       group = Member.ID,
+                       color = Full.Name)) +
+  geom_line(linewidth = .75) +
+  geom_point() +
+  labs(title = 'Examining Cross-Betweenness in Sila-Nowicki and Lamentowicz',
+       x = 'Year', 
+       y = 'Cross-Betweenness',
+       color = '') +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+
+```
 
 ### Candidate Variant #2
 
