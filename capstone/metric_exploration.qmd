@@ -68,9 +68,11 @@ cross_betweenness <- function(graph) {
 ```
 
 ```{r}
+exchange_participants <- read_csv('RT_Exchange_Participants.csv')
 
-
-
+```
+```{r}
+exchange_list <- list(exchange_participants$Member.ID)
 ```
 
 ```{r}
@@ -147,12 +149,12 @@ cross_betweenness_all <- function(affils_by_date, on_cols, start, end) {
 ```
 
 ```{r}
-# cross_betweenness_results_by_year <- cross_betweenness_all(
-#   affils_by_date = affiliation_dates,
-#   on_cols = c("Org.ID","Umbrella", "Subgroup"),
-#   start = as.Date("1950-01-01"),
-#   end = as.Date("1989-01-01")
-# )
+cross_betweenness_results_by_year <- cross_betweenness_all(
+  affils_by_date = affiliation_dates,
+  on_cols = c("Org.ID","Umbrella", "Subgroup"),
+  start = as.Date("1950-01-01"),
+  end = as.Date("1989-01-01")
+)
 
 head(cross_betweenness_results)
 

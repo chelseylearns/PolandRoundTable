@@ -257,6 +257,46 @@ cb_by_year |>
 
 ```
 
+Now that Dr. Domber has given us the list of exchange participants, we thought it might be interesting to look at their cross-betweenness scores. 
+
+```{r}
+exchange_participants <- read_csv('RT_Exchange_Participants.csv')
+```
+
+```{r}
+exchange_list <- list(exchange_participants$Member.ID)
+
+```
+
+```{r}
+# cb_by_year |>
+#   filter(Member.ID %in% c("MEM0009", "MEM0031", "MEM0046","MEM0049","MEM0083")) |>
+#   ggplot(mapping = aes(x = Start.Date,
+#                        y = CrossBetweenness,
+#                        group = Member.ID,
+#                        color = Full.Name)) +
+#   geom_line(linewidth = .75) + 
+#   geom_point() + 
+#   labs(title = 'Examining Cross-Betweenness in Exchange Participants',
+#        x = 'Year', 
+#        y = 'Cross-Betweenness',
+#        color = '') +
+#   theme_bw()+ 
+#   theme(plot.title = element_text(face = 'bold', size = 14), 
+#         legend.text = element_text(size = 12))
+
+cb_by_year |>
+  filter(Member.ID %in% exchange_list[[1]]) |>
+  group_by(Member.ID) |>
+  summarise(avg_cb = mean(CrossBetweenness),
+            Full.Name = first(Full.Name)) |>
+  arrange(desc(avg_cb)) |>
+  kable(format='html', caption='Cross-Betweenness in Exchange Participants') |>
+  kable_styling(bootstrap_options = c('striped', 'hover', 'condensed'), full_width = F)
+
+
+```
+
 ### Candidate Variant #2
 
 **What are we altering?**
