@@ -54,7 +54,7 @@ Where:
 \
 - $\sigma_{st}(v)$: Number of shortest paths from node $s$ to $t$ that pass through $v$.
 
-### Candidate Variant #1
+### Candidate Variant #1 - Cross-Betweenness
 
 **What are we altering?**
 \
@@ -328,7 +328,127 @@ We are still considering indirect interactions here, which may or may not be app
 \
 While mitigating against large clusters skewing the results, we may be giving undue influence to smaller clusters. Perhaps adjusting the normalization by some factor could help. 
 
+#### Analysis of Results
 
+```{r}
+
+joined <- norm_cross_betweenness_results_by_year |> 
+  inner_join(cb_by_year, by = c("Member.ID", 'Start.Date', 'End.Date'))
+
+joined
+
+joined <- joined %>%
+  select(Member.ID, Full.Name, Cross.Betweenness.Norm, CrossBetweenness, RT.Affiliation, Start.Date, End.Date)
+```
+
+```{r}
+
+
+joined |> arrange(desc(Cross.Betweenness.Norm)) |> 
+  slice_max(order_by = Cross.Betweenness.Norm, n = 20) |> 
+  kable(format = "html", caption = "Highest 20 Norm-Cross-Betweenness Results") |> 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+```
+
+```{r fig.width= 8}
+# Comparing Walesa and Kuron as suggested by Bodwin
+
+joined |> 
+  filter(Full.Name %in% c("Jacek Kuroń", "Lech Wałęsa")) |> 
+    ggplot(mapping = aes(x = Start.Date,
+                       y = Cross.Betweenness.Norm,
+                       group = Member.ID,
+                       color = Full.Name)) +
+  geom_line(linewidth = .75) +
+  geom_point() +
+  labs(title = 'Examining Normalized Cross-Betweenness in Kuroń and Wałęsa',
+       x = 'Year', 
+       y = 'Normalized Cross-Betweenness',
+       color = '') +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+```
+
+```{r fig.width = 10}
+# I would like to see what individuals have the highest cross-betweenness on average
+# filter the data down to include only these
+# then visualize
+
+top_5 <- joined |>
+  group_by(Member.ID) |>
+  summarise(avg_cb = mean(Cross.Betweenness.Norm),
+            Full.Name = first(Full.Name),
+            RT.Affiliation = first(RT.Affiliation)) |>
+  arrange(desc(avg_cb)) |>
+  slice_max(order_by = avg_cb, n = 5) 
+
+top_5 |>
+  kable(format = "html", caption = "Highest 5 Average Norm Cross-Betweenness Over Time") |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+
+cb_top_5_plot <- joined |> 
+  semi_join(top_5, by = 'Member.ID') 
+
+cb_top_5_plot |>
+  ggplot(aes(x = Start.Date, y = Cross.Betweenness.Norm, color = Full.Name)) +
+  geom_line(linewidth = 0.75) +
+  # geom_point() +
+  theme_bw() +
+  labs(title = "Norm Cross-Betweenness For Highest Average CB Individuals",
+       x = "Year",
+       y = "Cross-Betweenness",
+       color = "") +
+   theme(plot.title = element_text(face = "bold", size = 18),
+        legend.text = element_text(size = 12))
+
+```
+
+```{r fig.width = 8}
+# Comparing Pańko and Obsadny
+
+joined |> 
+  filter(Full.Name %in% c("Walerian Pańko", "Kazimierz Obsadny")) |> 
+    ggplot(mapping = aes(x = Start.Date,
+                       y = Cross.Betweenness.Norm,
+                       group = Member.ID,
+                       color = Full.Name)) +
+  geom_line(linewidth = .75) +
+  geom_point() +
+  labs(title = 'Examining Norm Cross-Betweenness in Pańko and Obsadny',
+       x = 'Year', 
+       y = 'Norm Cross-Betweenness',
+       color = '') +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+
+```
+
+```{r fig.width = 8}
+# Comparing Wladyslaw Sila-Nowicki and Wojciech Lamentowicz
+
+joined |> 
+  filter(Member.ID %in% c("MEM0252", "MEM0115")) |> 
+    ggplot(mapping = aes(x = Start.Date,
+                       y = Cross.Betweenness.Norm,
+                       group = Member.ID,
+                       color = Full.Name)) +
+  geom_line(linewidth = .75) +
+  geom_point() +
+  labs(title = 'Examining Norm Cross-Betweenness in Sila-Nowicki and Lamentowicz',
+       x = 'Year', 
+       y = 'Norm Cross-Betweenness',
+       color = '') +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+
+```
 
 ## Up Next 
 
