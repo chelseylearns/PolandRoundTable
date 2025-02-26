@@ -610,20 +610,162 @@ affil_dates |>
 
 ```
 
-#### Aggregating with Yearly Averages
+## Orgs-as-Nodes Metric Exploration
 
-Previously, we had used average CB and CNCB scores to identify individuals of note for further analysis. Here, we will aggregate a little differently to get a better overall picture of who 
+### PageRank in Undirected Orgs-as-Nodes 
+
+**What is PageRank?** 
+\
+Variant of eigen centrality that accounts for directed edges and includes damping factor to consider probability of flow between nodes. 
+
+**What it describes in the network?**
+\
+Organizations with high PageRank scores are "important" because they are connected to many other important organizations.
+
+For example, a university that shares many members with PZPR or Solidarity will have a high PageRank.
 
 
-## Up Next 
+```{r}
+edgelist_orgs <- read_csv("/Users/chelseyharper/Capstone/PolandRoundTable/capstone/edgelist-orgs.csv")
 
-- variant that adjusts the normalization factor
+```
 
-- variant that explores a decay factor to limit how much indirect interactions contribute. 
+```{r}
+orgs_edges <- edgelist_orgs |> 
+  filter(from != to) |> 
+  arrange(desc(num_members))
 
-- variant that considers only direct paths. 
+# orgs_edges
 
-- variants of other standard metrics - like eigen centrality 
+g <- graph_from_data_frame(orgs_edges, directed = FALSE)
 
-- exploring ratio idea
+E(g)$weight <- orgs_edges$num_members
+```
+
+
+```{r}
+
+page_rank_undirected <- page_rank(g, directed = FALSE,
+                                  weights = E(g)$weight)
+
+nodes_with_pagerank <- data.frame(
+  Org.ID = V(g)$name,
+  PageRank = page_rank_undirected$vector
+)
+
+# nodes_with_pagerank |>
+#   arrange(desc(PageRank))
+
+```
+
+```{r}
+org_meta <- read_csv('../clean_data/organization_meta_info.csv')
+```
+Using bidirectional graph, we can interpret the pageRank as the probability of 'passing' through a node on a random walk through the graph. 
+
+```{r}
+org_pr <- nodes_with_pagerank |> 
+  inner_join(org_meta, by = 'Org.ID') 
+```
+
+```{r}
+
+org_pr |> 
+  arrange(desc(PageRank)) |> 
+  slice_max(order_by = PageRank, n=10) |> 
+  kable(format = "html", 
+        caption = "PageRank Scores for Organizations") |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+  
+```
+
+### Orgs-as-Nodes Government and Opposition Comparison
+
+```{r}
+# Creating orgs nodes graph with only government affiliations
+
+# gov_g <- graph_from_data_frame(orgs_edges, directed = FALSE)
+# E(gov_g)$weight <- orgs_edges$Government
+# 
+# # Creating orgs nodes graph with only Opposition affiliations
+# 
+# opp_g <- graph_from_data_frame(orgs_edges, directed = FALSE)
+# E(opp_g)$weight <- orgs_edges$Opposition
+
+```
+
+```{r}
+# calculate_metrics <- function(g, inv_weight = FALSE) {
+#   if (inv_weight) {
+#     E(g)$weight <- 1 / E(g)$weight
+#   }
+#   
+#   metrics <- data.frame(
+#     Org.ID = V(g)$name,
+#     Degree = degree(g),
+#     Strength = strength(g),
+#     Betweenness = betweenness(g, weights = if (inv_weight) E(g)$weight else NA),
+#     Closeness = closeness(g, weights = if (inv_weight) E(g)$weight else NA),
+#     # Eigenvector = eigen_centrality(g)$vector,
+#     PageRank = page_rank(g, directed = FALSE, weights = E(g)$weight)$vector
+#   )
+#   
+#   return(metrics)
+# }
+
+
+```
+
+```{r}
+# Calculate metrics for government graph
+# gov_metrics <- calculate_metrics(gov_g, inv_weight = TRUE)
+# 
+# # Calculate metrics for opposition graph
+# opp_metrics <- calculate_metrics(opp_g, inv_weight = TRUE)
+
+```
+
+```{r}
+# gov_metrics <- gov_metrics |>
+#   mutate(Graph = "Government")
+# 
+# opp_metrics <- opp_metrics |>
+#   mutate(Graph = "Opposition")
+# 
+# combined_metrics <- bind_rows(gov_metrics, opp_metrics)
+
+# print(combined_metrics, row.names = FALSE)
+
+```
+
+## What We Accomplished This Week
+
+- We took a look at the spikes in CB and CNCB
+- We improved the flipped network app
+  - We implemented different weight schemes
+  - We implemented the color scheme for affiliation
+  - Tooltips are working for node info
+- We looked at PageRank in a bidirectional graph
+
+## We're Still Working On
+- We still have work to do on the flipped network
+  - We want to implement the size of nodes proportional to number of org members
+  - We still need to get tooltips for edges working
+- Getting more granular CB scores -> aggregating over time
+- Different Direction schemes
+- Gov and Opp Orgs Graph Metric Comparisons
+
+## What We Are Planning
+- Investigating EdgeBetweenness in both networks
+- Nailing down interpretations for orgs graph metrics
+- Another metric (formulated with Dr. Domber's ratio idea + eigencentrality)
+
+
+## Questions
+- What should we push to finish by the end of the quarter? 
+
+
+
+
+
 
