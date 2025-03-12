@@ -684,87 +684,168 @@ org_pr |>
 ```{r}
 # Creating orgs nodes graph with only government affiliations
 
-# gov_g <- graph_from_data_frame(orgs_edges, directed = FALSE)
-# E(gov_g)$weight <- orgs_edges$Government
-# 
-# # Creating orgs nodes graph with only Opposition affiliations
-# 
-# opp_g <- graph_from_data_frame(orgs_edges, directed = FALSE)
-# E(opp_g)$weight <- orgs_edges$Opposition
+gov_g <- graph_from_data_frame(orgs_edges, directed = FALSE)
+E(gov_g)$weight <- orgs_edges$Government
+
+# Creating orgs nodes graph with only Opposition affiliations
+
+opp_g <- graph_from_data_frame(orgs_edges, directed = FALSE)
+E(opp_g)$weight <- orgs_edges$Opposition
 
 ```
 
 ```{r}
-# calculate_metrics <- function(g, inv_weight = FALSE) {
-#   if (inv_weight) {
-#     E(g)$weight <- 1 / E(g)$weight
-#   }
-#   
-#   metrics <- data.frame(
-#     Org.ID = V(g)$name,
-#     Degree = degree(g),
-#     Strength = strength(g),
-#     Betweenness = betweenness(g, weights = if (inv_weight) E(g)$weight else NA),
-#     Closeness = closeness(g, weights = if (inv_weight) E(g)$weight else NA),
-#     # Eigenvector = eigen_centrality(g)$vector,
-#     PageRank = page_rank(g, directed = FALSE, weights = E(g)$weight)$vector
-#   )
-#   
-#   return(metrics)
-# }
+calculate_metrics <- function(g, inv_weight = FALSE) {
+  if (inv_weight) {
+    E(g)$weight <- 1 / E(g)$weight
+  }
+
+  metrics <- data.frame(
+    Org.ID = V(g)$name,
+    Degree = degree(g),
+    Strength = strength(g),
+    Betweenness = betweenness(g, weights = if (inv_weight) E(g)$weight else NA),
+    Closeness = closeness(g, weights = if (inv_weight) E(g)$weight else NA),
+    # Eigenvector = eigen_centrality(g)$vector,
+    PageRank = page_rank(g, directed = FALSE, weights = E(g)$weight)$vector
+  )
+
+  return(metrics)
+}
 
 
 ```
 
 ```{r}
-# Calculate metrics for government graph
-# gov_metrics <- calculate_metrics(gov_g, inv_weight = TRUE)
-# 
-# # Calculate metrics for opposition graph
-# opp_metrics <- calculate_metrics(opp_g, inv_weight = TRUE)
+#Calculate metrics for government graph
+gov_metrics <- calculate_metrics(gov_g, inv_weight = TRUE)
+
+# Calculate metrics for opposition graph
+opp_metrics <- calculate_metrics(opp_g, inv_weight = TRUE)
 
 ```
 
 ```{r}
 # gov_metrics <- gov_metrics |>
 #   mutate(Graph = "Government")
-# 
+#
 # opp_metrics <- opp_metrics |>
 #   mutate(Graph = "Opposition")
-# 
+#
 # combined_metrics <- bind_rows(gov_metrics, opp_metrics)
 
 # print(combined_metrics, row.names = FALSE)
 
 ```
+## CB Results with Aggregation
+
+```{r}
+# loading results of candidate variant #1 "Cross Betweenness"
+cb_by_month <- read_csv("cb_monthly_results.csv")
+
+cb_by_month |> arrange(desc(CrossBetweenness)) |> 
+  slice_max(order_by = CrossBetweenness, n = 20) |> 
+  kable(format = "html", caption = "Highest 20 Monthly Cross-Betweenness Results") |> 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+```
+
+```{r}
+cb_by_month <- cb_by_month |> 
+  mutate(Year = format(as.Date(Start.Date), "%Y")) 
+
+yearly_avg <- cb_by_month |> 
+  group_by(Member.ID, Full.Name, RT.Affiliation, Year) |>   
+  summarise(
+    Yearly_Avg_CrossBetweenness = mean(CrossBetweenness, na.rm = TRUE)  
+  ) |> 
+  ungroup()  
+
+overall_avg <- yearly_avg  |> 
+  group_by(Member.ID, Full.Name, RT.Affiliation)  |>   
+  summarise(
+    Overall_Avg_CrossBetweenness = mean(Yearly_Avg_CrossBetweenness, na.rm = TRUE)  
+  ) |> 
+  ungroup()  
+
+top_20_individuals <- overall_avg  |> 
+  arrange(desc(Overall_Avg_CrossBetweenness)) |>  
+  slice_max(order_by = Overall_Avg_CrossBetweenness, n = 20) |> 
+  kable(format = "html", caption = "Highest 20 Aggregate Cross-Betweenness Results") |> 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+top_20_individuals
+
+```
+
+```{r}
+cb_agg_ziabicki <- 
+  cb_by_month |> 
+  filter(Full.Name %in% c("Andrzej Ziabicki")) |> 
+    ggplot(mapping = aes(x = Start.Date,
+                       y = CrossBetweenness,
+                       group = Member.ID,
+                       color = Full.Name)) +
+  geom_line(linewidth = .75) +
+  geom_point() +
+  labs(title = 'Examining Aggregated Cross-Betweenness in Ziabicki',
+       x = 'Year', 
+       y = 'Cross-Betweenness',
+       color = '') +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+cb_agg_ziabicki
+
+```
+
+
+
+```{r}
+
+individual_to_highlight <- "Andrzej Ziabicki"  
+
+overall_avg <- overall_avg |> 
+  mutate(Highlight = ifelse(Full.Name == individual_to_highlight, "Highlighted", "Not Highlighted"))
+
+
+ggplot(overall_avg, aes(x = "", y = Overall_Avg_CrossBetweenness)) +
+  geom_boxplot(width = 0.5, fill = "steelblue", outlier.shape = NA) + 
+  geom_jitter(aes(color = Highlight, alpha = Highlight), width = 0.2, size = 2) +  
+  scale_color_manual(values = c("Highlighted" = "red", "Not Highlighted" = "gray")) +  
+  scale_alpha_manual(values = c("Highlighted" = 1, "Not Highlighted" = 0.35), guide = "none") +  
+  labs(title = paste("Distribution of Overall Average Cross-Betweenness with Highlighted Individual:", individual_to_highlight),
+       x = "",
+       y = "Overall Average Cross-Betweenness") +
+  theme_minimal() +
+  theme(legend.position = "none")  
+
+
+```
+
+
 
 ## What We Accomplished This Week
-
-- We took a look at the spikes in CB and CNCB
-- We improved the flipped network app
-  - We implemented different weight schemes
-  - We implemented the color scheme for affiliation
-  - Tooltips are working for node info
-- We looked at PageRank in a bidirectional graph
+- Jack pushed Orgs-as-Nodes to Dr. Bodwin's Repo
+  - Dr. Bodwin will have it integrated by the end of the week
+- Function Optimization for CB and CNCB
 
 ## We're Still Working On
-- We still have work to do on the flipped network
-  - We want to implement the size of nodes proportional to number of org members
-  - We still need to get tooltips for edges working
-- Getting more granular CB scores -> aggregating over time
-- Different Direction schemes
-- Gov and Opp Orgs Graph Metric Comparisons
-
-## What We Are Planning
+- We have created a more optimized version of CB and CNCB so that we may get
+more granular scores and aggregate properly 
+  - But we are running into snags -- this needs more work
+- We are integrating CB and CNCB functionality into the Shiny app 
+  - customization questions
+  - boxplot for understanding individual placement in broader landscape?
+  - populate IAs for given time range? 
+  
+## What We Are Still Planning 
 - Investigating EdgeBetweenness in both networks
 - Nailing down interpretations for orgs graph metrics
+
+## Saving for Later
 - Another metric (formulated with Dr. Domber's ratio idea + eigencentrality)
-
-
-## Questions
-- What should we push to finish by the end of the quarter? 
-
-
 
 
 
