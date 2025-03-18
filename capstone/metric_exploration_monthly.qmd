@@ -1,0 +1,450 @@
+---
+title: "metric_exploration"
+format: 
+  html:
+    embed-resources: true
+    code-tools: true
+    code-fold: true
+    toc: true
+    number-sections: false
+editor: source
+execute: 
+  error: true
+  echo: true
+  message: false
+  warning: false
+---
+
+
+```{r}
+library(dplyr)
+library(purrr)
+library(lubridate)
+library(progress)
+devtools::load_all("../")
+```
+
+```{r}
+cross_betweenness <- function(graph) {
+  # make groups of government nodes and opposition node
+  gov_idx <- which(V(graph)$RT.Affiliation == "Government")
+  opp_idx <- which(V(graph)$RT.Affiliation == "Opposition")
+  
+  # if none, then just return zeros
+  if (length(gov_idx) == 0 || length(opp_idx) == 0) {
+    return(rep(0, igraph::vcount(graph)))
+  }
+  
+  scores <- numeric(igraph::vcount(graph))
+  
+  # loop over each pair gov-opp
+  for (g in gov_idx) {
+    for (o in opp_idx) {
+      # get all shortest paths from g to o
+      # ignore weights so that igraph doesn't do djikstra
+      short_paths <- igraph::all_shortest_paths(graph, from = g, to = o, weights = NA)$res
+      num_paths <- length(short_paths)
+      if(num_paths == 0) {
+        # skip if there is no shortest path from g to o
+        next
+      }
+      
+      # for each shortest path, add 1/num_paths to interior 
+      for (path_vec in short_paths) {
+        if (length(path_vec) <= 2) {
+          # no interior nodes
+          next
+        }
+        # exclude first and last node
+        interior <- path_vec[2:(length(path_vec) - 1)]
+        scores[interior] <- scores[interior] + (1 / num_paths)
+      }
+    }
+  }
+  
+  return(scores)
+  
+}
+
+```
+
+```{r}
+exchange_participants <- read_csv('RT_Exchange_Participants.csv')
+
+```
+```{r}
+exchange_list <- list(exchange_participants$Member.ID)
+```
+
+```{r}
+
+get_cross_betweenness <- function(affils_by_date, on_cols, start, end) {
+  # get edge list
+  edgelist <- get_edgelist_members(
+    affils_by_date,
+    on_cols = on_cols,
+    start = start,
+    end = end,
+    # weight_col = "weight"
+  )
+  if(is.null(edgelist) || nrow(edgelist) == 0) {
+    # return 0 or NA
+    return(tibble(Member.ID = character(), CrossBetweenness = numeric()))
+  }
+
+  # build the graph
+  graph <- igraph::graph_from_data_frame(edgelist, directed = FALSE)
+
+  # add affiliation as vertex attribute
+  V(graph)$RT.Affiliation <- purrr::map_chr(
+    V(graph)$name,
+    ~ member_meta_info$RT.Affiliation[member_meta_info$Member.ID == .x]
+  )
+
+  # # create sets of Gov and Opp nodes for pairing
+  # gov_idx <- which(V(graph)$RT.Affiliation == "Government")
+  # opp_idx <- which(V(graph)$RT.Affiliation == "Opposition")
+  # 
+  # if (length(gov_idx) == 0 || length(opp_idx) == 0) {
+  #   cross_betweenness <- rep(0, igraph::vcount(graph))
+  # } else {
+  #   pairs_mat <- as.matrix(expand.grid(gov_idx, opp_idx))
+  #   cross_betweenness <- igraph::betweenness(graph,
+  #                                            directed = FALSE,
+  #                                            pairs = pairs_mat,
+  #                                            weights = E(graph)$weight)
+  # }
+  
+  cross_betweenness <- cross_betweenness(graph)
+
+  tibble(
+    Member.ID = igraph::V(graph)$name,
+    CrossBetweenness = cross_betweenness
+  )
+}
+
+```
+
+```{r}
+cross_betweenness_all <- function(affils_by_date, on_cols, start, end) {
+  # all_starts <- seq.Date(start, end, by = "month")
+  # all_ends <- all_starts + 30
+  all_starts <- seq.Date(from = start, to = end, by = "year")
+  all_ends <- all_starts %m+% years(1) - days(1) 
+  
+
+  results <- purrr::map2_dfr(all_starts, all_ends, function(s, e) {
+    temp <- get_cross_betweenness(
+      affils_by_date,
+      on_cols,
+      start = s,
+      end = e
+    )
+    temp |>
+      mutate(Start.Date = s, End.Date = e)
+  })
+
+  results
+}
+
+```
+
+
+```{r}
+cross_betweenness_all_monthly <- function(affils_by_date, on_cols, start, end, output_file) {
+  
+  # all_starts <- seq.Date(from = as.Date("1945-01-01"), to = as.Date("1989-01-01"), by = "day")
+  # all_ends <- all_starts
+
+  all_starts <- seq.Date(from = start, to = end, by = "month")
+  all_ends <- all_starts %m+% months(1) - days(1)
+
+  # all_starts <- seq.Date(from = start, to = end, by = "year")
+  # all_ends <- all_starts %m+% years(1) - days(1) 
+
+  # Check if output file already exists -- if it does, resume
+  # if (file.exists(output_file)) {
+  #   existing_data <- read.csv(output_file)
+  #   processed_dates <- unique(existing_data$Start.Date)
+  # } else {
+  #   processed_dates <- character()
+  # }
+
+  # loop through each month
+  for (i in seq_along(all_starts)) {
+    s <- all_starts[i]
+    e <- all_ends[i]
+    
+    # skip if date range has already been seen
+    # if (as.character(s) %in% processed_dates) next
+    
+    temp <- get_cross_betweenness(
+      affils_by_date,
+      on_cols,
+      start = s,
+      end = e
+    ) |>
+      mutate(Start.Date = s, End.Date = e)
+    
+    
+    temp <- temp |> 
+      left_join(
+        member_info |> 
+          select(Member.ID, Full.Name, RT.Affiliation),
+        by = "Member.ID"
+      )
+
+    # Append
+    write.table(temp, file = output_file, sep = ",", row.names = FALSE, col.names = !file.exists(output_file), append = TRUE)
+
+    # print(paste("Processed:", s, "to", e))
+    message(paste("Processed:", s, "to", e))
+  }
+}
+```
+
+```{r}
+
+cross_betweenness_all_monthly(
+  affils_by_date = affiliation_dates,
+  on_cols = c("Org.ID", "Umbrella", "Subgroup"),
+  start = as.Date("1945-01-01"),
+  end = as.Date("1989-01-01"),
+  output_file = "cb_monthly_results.csv"
+)
+```
+
+```{r}
+
+all_starts<-seq.Date(from = as.Date("1945-01-01"), to = as.Date("1989-01-01"), by = "month")
+all_ends<-all_starts %m+% months(1) - days(1)
+
+
+
+
+all_starts
+all_ends
+```
+
+
+```{r}
+member_info <- read_csv('../clean_data/member_meta_info.csv')
+
+# cross_betweenness_results_by_year <- cross_betweenness_results_by_year |> 
+#   left_join(
+#     member_info |> 
+#       select(Member.ID, Full.Name, RT.Affiliation),
+#     by = "Member.ID"
+#   )
+
+# cross_betweenness_results_by_year <- cross_betweenness_results_by_year |> 
+#   select(Member.ID, CrossBetweenness, Start.Date, End.Date, Full.Name.x, RT.Affiliation.x)
+
+# cross_betweenness_results_by_year <- cross_betweenness_results_by_year |> 
+#   rename(RT.Affiliation = RT.Affiliation.x)
+
+cross_betweenness_results_by_year |> 
+  ggplot(mapping = aes(x = Start.Date,
+                       y = CrossBetweenness,
+                       group = Member.ID,
+                       color = RT.Affiliation)) +
+  geom_line() +
+  geom_point()
+```
+
+```{r}
+tmp <- cross_betweenness_results_by_year |> arrange(desc(CrossBetweenness))
+
+```
+
+```{r}
+# Comparing Walesa and Kuron as suggested by Bodwin
+
+cross_betweenness_results_by_year |> 
+  filter(Full.Name == c("Jacek Kuroń", "Lech Wałęsa")) |> 
+    ggplot(mapping = aes(x = Start.Date,
+                       y = CrossBetweenness,
+                       group = Member.ID,
+                       color = Full.Name)) +
+  geom_line() +
+  geom_point() +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 16))
+
+```
+
+
+
+```{r}
+#-------------------------------------------------------------------------------
+# Calculate cross-betweenness for a graph, but normalized by the cluster sizes
+# of the starting and target nodes
+# Uses Louvain method of community detection
+
+cross_betweenness_normalized <- function(graph) {
+
+  # detect communities
+  louvain_communities <- igraph::cluster_louvain(graph)
+
+  # create a vector for which community each node belongs to
+  membership_vector <- igraph::membership(louvain_communities)
+
+  # get sizes of communities
+  community_sizes <- table(membership_vector)
+
+  cluster_size_vector <- as.numeric(
+    community_sizes[as.character(membership_vector)])
+
+  # make groups of government nodes and opposition node
+  gov_idx <- which(V(graph)$RT.Affiliation == "Government")
+  opp_idx <- which(V(graph)$RT.Affiliation == "Opposition")
+
+  # if none, then just return zeros
+  if (length(gov_idx) == 0 || length(opp_idx) == 0) {
+    return(rep(0, igraph::vcount(graph)))
+  }
+
+  scores <- numeric(igraph::vcount(graph))
+
+  # loop over each pair gov-opp
+  for (g in gov_idx) {
+    for (o in opp_idx) {
+
+      # normalizing factor
+      factor <- 1 / (cluster_size_vector[g] * cluster_size_vector[o])
+
+      # get all shortest paths from g to o
+      # ignore weights so that igraph doesn't do djikstra
+      short_paths <- igraph::all_shortest_paths(
+        graph, from = g, to = o, weights = NA)$res
+      num_paths <- length(short_paths)
+      if(num_paths == 0) {
+        # skip if there is no shortest path from g to o
+        next
+      }
+
+      # for each shortest path, add 1/num_paths to interior
+      for (path_vec in short_paths) {
+        if (length(path_vec) <= 2) {
+          # no interior nodes
+          next
+        }
+        # exclude first and last node
+        interior <- path_vec[2:(length(path_vec) - 1)]
+        scores[interior] <- scores[interior] + (factor / num_paths)
+      }
+    }
+  }
+
+  return(scores)
+}
+
+
+
+```
+
+```{r}
+#------------------------------------------------------------------------------
+# Function for getting cross-betweenness for a given graph, but normalized
+# by cluster size of the start and target nodes.
+# Uses affiliation_dates (filtered to start and end) to create graph
+# on_cols determines what categories create edges
+
+
+get_cross_betweenness_norm <- function(affils_by_date, on_cols, start, end) {
+  # get edge list
+  edgelist <- get_edgelist_members(
+    affils_by_date,
+    on_cols = on_cols,
+    start = start,
+    end = end,
+    # weight_col = "weight"
+  )
+  if(is.null(edgelist) || nrow(edgelist) == 0) {
+    # return 0 or NA
+    return(tibble(Member.ID = character(), CrossBetweenness = numeric()))
+  }
+
+  # build the graph
+  graph <- igraph::graph_from_data_frame(edgelist, directed = FALSE)
+
+  # add affiliation as vertex attribute
+  V(graph)$RT.Affiliation <- purrr::map_chr(
+    V(graph)$name,
+    ~ member_meta_info$RT.Affiliation[member_meta_info$Member.ID == .x]
+  )
+
+  cross_betweenness <- cross_betweenness_normalized(graph)
+
+  tibble(
+    Member.ID = igraph::V(graph)$name,
+    Cross.Betweenness.Norm = cross_betweenness
+  )
+}
+
+
+
+
+
+```
+
+
+```{r}
+cross_betweenness_norm_all_monthly <- function(affils_by_date, on_cols, start, end, output_file) {
+  all_starts <- seq.Date(from = start, to = end, by = "month")
+  all_ends <- all_starts %m+% months(1) - days(1)
+
+  # all_starts <- seq.Date(from = start, to = end, by = "year")
+  # all_ends <- all_starts %m+% years(1) - days(1)
+
+  # Check if output file already exists -- if it does, resume
+  # if (file.exists(output_file)) {
+  #   existing_data <- read.csv(output_file)
+  #   processed_dates <- unique(existing_data$Start.Date)
+  # } else {
+  #   processed_dates <- character()
+  # }
+
+  # loop through each month
+  for (i in seq_along(all_starts)) {
+    s <- all_starts[i]
+    e <- all_ends[i]
+    
+    # skip if date range has already been seen
+    # if (as.character(s) %in% processed_dates) next
+    
+    temp <- get_cross_betweenness_norm(
+      affils_by_date,
+      on_cols,
+      start = s,
+      end = e
+    ) |>
+      mutate(Start.Date = s, End.Date = e)
+    
+    
+    temp <- temp |> 
+      left_join(
+        member_info |> 
+          select(Member.ID, Full.Name, RT.Affiliation),
+        by = "Member.ID"
+      )
+    
+    # Append
+    write.table(temp, file = output_file, sep = ",", row.names = FALSE, col.names = !file.exists(output_file), append = TRUE)
+
+    # print(paste("Processed:", s, "to", e))
+    message(paste("Processed:", s, "to", e))
+  }
+}
+```
+```{r}
+cross_betweenness_norm_all_monthly(
+  affils_by_date = affiliation_dates,
+  on_cols = c("Org.ID", "Umbrella", "Subgroup"),
+  start = as.Date("1945-01-01"),
+  end = as.Date("1989-01-01"),
+  output_file = "cb_norm_monthly_results.csv"
+)
+```
+
+
