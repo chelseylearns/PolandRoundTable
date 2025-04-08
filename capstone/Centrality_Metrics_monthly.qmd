@@ -22,6 +22,7 @@ library(purrr)
 library(lubridate)
 library(kableExtra)
 library(ggforce)
+library(igraph)
 devtools::load_all("../")
 ```
 
@@ -331,6 +332,120 @@ We are still considering indirect interactions here, which may or may not be app
 \
 While mitigating against large clusters skewing the results, we may be giving undue influence to smaller clusters. Perhaps adjusting the normalization by some factor could help. 
 
+#### Understanding Louvain Clustering
+
+The normalizing factor above is the product of the sizes of Louvain clusters for both the start and target nodes for each Government/Opposition pair. 
+
+##### What is Louvain Clustering? 
+
+
+
+```{r}
+# Function to get Louvain cluster information for all RT participants
+# By year
+
+get_louvain_communities_by_year <- function(affils_by_date, on_cols,
+                                            start_year = 1945,
+                                            end_year   = 1989) {
+  
+
+  all_starts <- seq.Date(from = as.Date(paste0(start_year, "-01-01")),
+                         to   = as.Date(paste0(end_year,   "-01-01")),
+                         by   = "year")
+
+  results <- purrr::map_dfr(all_starts, function(start_date) {
+    
+    end_date <- start_date %m+% years(1) - days(1)
+    
+    edgelist <- get_edgelist_members(
+      affils_by_date,
+      on_cols,
+      start = start_date,
+      end   = end_date
+    )
+    
+    if(is.null(edgelist) || nrow(edgelist) == 0) {
+      return(tibble(
+        Member.ID         = character(0),
+        LouvainCommunity  = integer(0),
+        Year              = integer(0)
+      ))
+    }
+    
+    graph <- igraph::graph_from_data_frame(edgelist, directed = FALSE)
+    
+    louvain_result <- igraph::cluster_louvain(graph)
+    membership_vec <- igraph::membership(louvain_result)
+    
+    node_ids <- igraph::V(graph)$name
+    
+    tibble(
+      Member.ID         = node_ids,
+      LouvainCommunity  = membership_vec,
+      Year              = lubridate::year(start_date)
+    )
+  })
+
+  return(results)
+}
+
+
+
+```
+
+```{r}
+# louvain_results <- get_louvain_communities_by_year(
+#   affils_by_date = affiliation_dates,
+#   on_cols = c("Org.ID", "Umbrella"), 
+#   start_year = 1945,
+#   end_year   = 1989
+# )
+
+affils <- read_csv("../clean_data/affiliation_dates.csv")
+
+affils_year <- affils |> 
+  mutate(
+    Start.Year = if_else(!is.na(Start.Date),
+                         year(ymd(Start.Date)),
+                         NA_integer_),
+    End.Year = if_else(!is.na(End.Date),
+                       year(ymd(End.Date)),
+                       NA_integer_)
+  )
+
+
+```
+
+```{r}
+louvain_results <- read_csv("louvain_results_yearly.csv")
+
+# louvain_results <- louvain_results |>
+#   left_join(affils_year, by = "Member.ID")
+# 
+# louvain_results <- louvain_results |>
+#   filter(
+#     (is.na(Start.Year) | Year >= Start.Year) &
+#       (is.na(End.Year) | Year <= End.Year)
+#   )
+# 
+# louvain_results <- louvain_results |>
+#   group_by(Member.ID, Full.Name, RT.Affiliation, LouvainCommunity, Year) |>
+#   summarize(
+#     OrgsInYear = paste(unique(Organization.Name), collapse = "; "),
+#     .groups = "drop"
+#   )
+
+
+
+```
+
+```{r}
+# write.csv(louvain_results, file = "louvain_results_yearly.csv", row.names = FALSE)
+
+```
+
+
+
 #### Analysis of Results
 
 ```{r}
@@ -610,6 +725,12 @@ affil_dates |>
 
 ```
 
+## Variants of Closeness Centrality
+
+### Standard Closeness Centrality
+
+### Candidate Variant #3 - Cross Closeness
+
 ## Orgs-as-Nodes Metric Exploration
 
 ### PageRank in Undirected Orgs-as-Nodes 
@@ -737,6 +858,9 @@ opp_metrics <- calculate_metrics(opp_g, inv_weight = TRUE)
 # print(combined_metrics, row.names = FALSE)
 
 ```
+
+
+
 ## CB Results with Aggregation
 
 ```{r}
@@ -819,114 +943,262 @@ ggplot(overall_avg, aes(x = "", y = Overall_Avg_CrossBetweenness)) +
        x = "",
        y = "Overall Average Cross-Betweenness") +
   theme_minimal() +
-  theme(legend.position = "none")  
+  theme(legend.position = "none")  +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+
+```
+
+## CNCB With Aggregation
+
+```{r}
+cncb_by_month <- read_csv("cb_norm_monthly_results.csv")
+
+cncb_by_month |> arrange(desc(Cross.Betweenness.Norm)) |> 
+  slice_max(order_by = Cross.Betweenness.Norm, n = 20) |> 
+  kable(format = "html", caption = "Highest 20 Monthly Norm Cross-Betweenness Results") |> 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+```
+```{r}
+cncb_by_month <- cncb_by_month |> 
+  mutate(Year = format(as.Date(Start.Date), "%Y")) 
+
+cncb_yearly_avg <- cncb_by_month |> 
+  group_by(Member.ID, Full.Name, RT.Affiliation, Year) |>   
+  summarise(
+    Yearly_Avg_NormCrossBetweenness = mean(Cross.Betweenness.Norm, na.rm = TRUE)  
+  ) |> 
+  ungroup()  
+
+cncb_overall_avg <- cncb_yearly_avg  |> 
+  group_by(Member.ID, Full.Name, RT.Affiliation)  |>   
+  summarise(
+    Overall_Avg_NormCrossBetweenness = mean(Yearly_Avg_NormCrossBetweenness, na.rm = TRUE)  
+  ) |> 
+  ungroup()  
+
+top_20_individuals <- cncb_overall_avg  |> 
+  arrange(desc(Overall_Avg_NormCrossBetweenness)) |>  
+  slice_max(order_by = Overall_Avg_NormCrossBetweenness, n = 20) |> 
+  kable(format = "html", caption = "Highest 20 Aggregate Norm Cross-Betweenness Results") |> 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+top_20_individuals
+
+
+```
+
+## Exchange Participants in Aggregated CB and CNCB Landscape
+
+```{r}
+exchange_participants <- read_csv('RT_Exchange_Participants.csv')
+```
+
+```{r}
+exchange_list <- exchange_participants$Member.ID
+
+```
+
+```{r}
+overall_avg <- overall_avg |> 
+  mutate(
+    Highlight = ifelse(Member.ID %in% exchange_list,
+                       "Highlighted", "Not Highlighted")
+  )
+
+ggplot(overall_avg,
+       aes(x = "", y = Overall_Avg_CrossBetweenness)) +
+  geom_boxplot(width=0.5, fill="steelblue", outlier.shape=NA) +
+  geom_jitter(aes(color = Highlight, alpha = Highlight),
+              width = 0.2, size=2) +
+  scale_color_manual(values= c(Highlighted = "red",
+                               `Not Highlighted` = "gray")) +
+  scale_alpha_manual(values = c(Highlighted = 1,
+                                `Not Highlighted` = 0.2),
+                     guide = "none") +
+  labs(
+    title = "Distribution of Overall Average Cross Betweenness\n(60 Exchange Participants Highlighted)",
+    x = NULL,
+    y = "Overall Average Cross Betweenness"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  theme(plot.title = element_text(face = "bold", size = 14),
+      legend.text = element_text(size = 12))
 
 
 ```
 
 
+```{r}
+exchange_cb <- overall_avg  |>
+  filter(Highlight == "Highlighted") |>
+  arrange(desc(Overall_Avg_CrossBetweenness)) |>
+  # slice_max(order_by = Overall_Avg_NormCrossBetweenness, n = 20) |>
+  kable(format = "html", caption = "Exchange Participants Aggregate Cross-Betweenness Results") |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+exchange_cb
+
+```
+
+
+```{r}
+cncb_overall_avg <- cncb_overall_avg |> 
+  mutate(
+    Highlight = ifelse(Member.ID %in% exchange_list,
+                       "Highlighted", "Not Highlighted")
+  )
+
+ggplot(cncb_overall_avg,
+       aes(x = "", y = Overall_Avg_NormCrossBetweenness)) +
+  geom_boxplot(width=0.5, fill="steelblue", outlier.shape=NA) +
+  geom_jitter(aes(color = Highlight, alpha = Highlight),
+              width = 0.2, size=2) +
+  scale_color_manual(values= c(Highlighted = "red",
+                               `Not Highlighted` = "gray")) +
+  scale_alpha_manual(values = c(Highlighted = 1,
+                                `Not Highlighted` = 0.2),
+                     guide = "none") +
+  labs(
+    title = "Distribution of Overall Average Norm Cross Betweenness\n(60 Exchange Participants Highlighted)",
+    x = NULL,
+    y = "Overall Average Norm Cross Betweenness"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  theme(plot.title = element_text(face = "bold", size = 14),
+      legend.text = element_text(size = 12))
+
+
+```
+```{r}
+exchange_cncb <- cncb_overall_avg  |>
+  filter(Highlight == "Highlighted") |>
+  arrange(desc(Overall_Avg_NormCrossBetweenness)) |>
+  # slice_max(order_by = Overall_Avg_NormCrossBetweenness, n = 20) |>
+  kable(format = "html", caption = "Exchange Participants Aggregate Norm Cross-Betweenness Results") |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+exchange_cncb
+```
 
 ## What We Accomplished This Week
-- Jack pushed Orgs-as-Nodes to Dr. Bodwin's Repo
-  - Dr. Bodwin will have it integrated by the end of the week
-- Function Optimization for CB and CNCB
+- **Planning / Roadmap**
+  - There are primarily 3 avenues (maybe 4?):
+    - Shiny app development
+      - improve UI, add features, integrate flipped into original app
+    - Analysis of Orgs-as-Nodes
+      - run normal metrics, explore custom metrics
+    - Exchange participants
+      - explore significance of exchange participants (statistical testing / simulation study), explore effect of exchanges themselves on participants metric scores
+    - Machine Learning
+      - unsupervised learning on all collected metrics
+      - explore GNN (for fun)
+
 
 ## We're Still Working On
-- We have created a more optimized version of CB and CNCB so that we may get
-more granular scores and aggregate properly 
-  - But we are running into snags -- this needs more work
-- We are integrating CB and CNCB functionality into the Shiny app 
-  - customization questions
-  - boxplot for understanding individual placement in broader landscape?
-  - populate IAs for given time range? 
+- Still working on integrating CB and CNCB into the Shiny app (as a separate tab) as well as the option to see metric drivers (populate IAs) based on selected date ranges
+- Still working on the table within the app that can show all individuals and allow sorting by different metrics 
+- Deep dive into the Louvain clusters
+  - We've started an analysis of the clusters themselves, what orgs are consigned to a single cluster / dispersed over many? What does that mean for an organization? 
+   - We also want to apply Louvain to orgs-as-nodes and begin analysis there
+   - We also may want to alter Louvain to redefine modularity so that cross-faction connectedness is maximized rather than overall connectedness
+- Creating another metric Cross-Closeness
+  - Differs from betweenness, focuses on reachability (not just shortest paths), we can define this to only look at cross-party connections
+
+
   
 ## What We Are Still Planning 
-- Investigating EdgeBetweenness in both networks
-- Nailing down interpretations for orgs graph metrics
+- Exchange Participants
+  - Are you interested in how the exchanges themselves impacted an individual's role as a possible mediator? If so, could you provide the dates and lengths of the exchanges? 
+  - Or are you more interested in whether an exchange participant exhibits overall greater potential for mediation? 
+- Orgs-as-Nodes
 
-## Saving for Later
-- Another metric (formulated with Dr. Domber's ratio idea + eigencentrality)
+
 
 
 
 ```{r, fig.width=20, fig.height=16}
 
-detect_unusual_behavior <- function(data, 
-                                    metric = "CrossBetweenness", 
-                                    date_var = "Start.Date", 
-                                    participant_var = "Full.Name",
-                                    range_threshold = NULL, 
-                                    spike_threshold = NULL, 
-                                    quantile_prob = 0.9) {
+# detect_unusual_behavior <- function(data, 
+#                                     metric = "CrossBetweenness", 
+#                                     date_var = "Start.Date", 
+#                                     participant_var = "Full.Name",
+#                                     range_threshold = NULL, 
+#                                     spike_threshold = NULL, 
+#                                     quantile_prob = 0.95) {
+# 
+#   stats <- data |> 
+#     group_by(.data[[participant_var]]) |> 
+#     arrange(.data[[date_var]], .by_group = TRUE) |> 
+#     summarize(
+#       range_value = max(.data[[metric]], na.rm = TRUE) - min(.data[[metric]], na.rm = TRUE),
+#       max_spike = if(n() > 1) max(abs(diff(.data[[metric]])), na.rm = TRUE) else NA_real_
+#     )
+#   
+#   if(is.null(range_threshold)) {
+#     range_threshold <- quantile(stats$range_value, quantile_prob, na.rm = TRUE)
+#   }
+#   if(is.null(spike_threshold)) {
+#     spike_threshold <- quantile(stats$max_spike, quantile_prob, na.rm = TRUE)
+#   }
+#   
+#   unusual <- stats |> 
+#     filter(range_value >= range_threshold | max_spike >= spike_threshold)
+#   
+#   return(list(stats = stats, unusual = unusual, 
+#               range_threshold = range_threshold, 
+#               spike_threshold = spike_threshold))
+# }
 
-  stats <- data |> 
-    group_by(.data[[participant_var]]) |> 
-    arrange(.data[[date_var]], .by_group = TRUE) |> 
-    summarize(
-      range_value = max(.data[[metric]], na.rm = TRUE) - min(.data[[metric]], na.rm = TRUE),
-      max_spike = if(n() > 1) max(abs(diff(.data[[metric]])), na.rm = TRUE) else NA_real_
-    )
-  
-  if(is.null(range_threshold)) {
-    range_threshold <- quantile(stats$range_value, quantile_prob, na.rm = TRUE)
-  }
-  if(is.null(spike_threshold)) {
-    spike_threshold <- quantile(stats$max_spike, quantile_prob, na.rm = TRUE)
-  }
-  
-  unusual <- stats |> 
-    filter(range_value >= range_threshold | max_spike >= spike_threshold)
-  
-  return(list(stats = stats, unusual = unusual, 
-              range_threshold = range_threshold, 
-              spike_threshold = spike_threshold))
-}
-
-plot_unusual_behavior <- function(data, unusual_participants, 
-                                  metric = "CrossBetweenness", 
-                                  date_var = "Start.Date", 
-                                  participant_var = "Full.Name", 
-                                  ncol = 5, nrow = 5) {
-  data_filtered <- data |>  
-    filter(.data[[participant_var]] %in% unusual_participants)
-  
-  base_plot <- ggplot(data_filtered, aes_string(x = date_var, y = metric)) +
-    geom_line(linewidth = 0.75) +
-    labs(x = "Date", y = metric, title = "Time Series for Unusual Participants") +
-    theme_bw() +
-    theme(plot.title = element_text(face = "bold", size = 14))
-  
-  total_facets <- length(unique(data_filtered[[participant_var]]))
-  plots_per_page <- ncol * nrow
-  total_pages <- ceiling(total_facets / plots_per_page)
-  message("Total pages: ", total_pages)
-  
-  paginated_plots <- lapply(1:total_pages, function(page_num) {
-    base_plot + facet_wrap_paginate(as.formula(paste("~", participant_var)), 
-                                    ncol = ncol, nrow = nrow, page = page_num)
-  })
-  
-  return(paginated_plots)
-}
-
-
-results <- detect_unusual_behavior(cb_by_year)
-# print(results$stats)
-# print(results$unusual)
-
-unusual_ids <- results$unusual[[ "Full.Name" ]]
-
-plots <- plot_unusual_behavior(cb_by_month, unusual_ids, ncol = 5, nrow = 5)
-
-for(p in plots) {
-  print(p)
-}
+# plot_unusual_behavior <- function(data, unusual_participants, 
+#                                   metric = "CrossBetweenness", 
+#                                   date_var = "Start.Date", 
+#                                   participant_var = "Full.Name", 
+#                                   ncol = 5, nrow = 5) {
+#   data_filtered <- data |>  
+#     filter(.data[[participant_var]] %in% unusual_participants)
+#   
+#   base_plot <- ggplot(data_filtered, aes_string(x = date_var, y = metric)) +
+#     geom_line(linewidth = 0.75) +
+#     labs(x = "Date", y = metric, title = "Time Series for Unusual Participants") +
+#     theme_bw() +
+#     theme(plot.title = element_text(face = "bold", size = 14))
+#   
+#   total_facets <- length(unique(data_filtered[[participant_var]]))
+#   plots_per_page <- ncol * nrow
+#   total_pages <- ceiling(total_facets / plots_per_page)
+#   message("Total pages: ", total_pages)
+#   
+#   paginated_plots <- lapply(1:total_pages, function(page_num) {
+#     base_plot + facet_wrap_paginate(as.formula(paste("~", participant_var)), 
+#                                     ncol = ncol, nrow = nrow, page = page_num)
+#   })
+#   
+#   return(paginated_plots)
+# }
+# 
+# 
+# results <- detect_unusual_behavior(cb_by_year)
+# # print(results$stats)
+# # print(results$unusual)
+# 
+# unusual_ids <- results$unusual[[ "Full.Name" ]]
+# 
+# plots <- plot_unusual_behavior(cb_by_month, unusual_ids, ncol = 5, nrow = 5)
+# 
+# for(p in plots) {
+#   print(p)
+# }
 
 ```
 
 ```{r}
-joined |> 
-  filter(Member.ID %in% c("MEM0252", "MEM0115"))
+# joined |> 
+#   filter(Member.ID %in% c("MEM0252", "MEM0115"))
 
 
 
