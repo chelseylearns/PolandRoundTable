@@ -1,0 +1,217 @@
+---
+title: "RT Network Analysis - Orgs Edge CB and Exchange Participants"
+author: "Harshini Karthikeyan, Alex Ralston, Jack Colt, Chelsey Harper"
+format: 
+  html:
+    embed-resources: true
+    code-tools: true
+    code-fold: true
+    toc: true
+    number-sections: false
+editor: source
+execute: 
+  error: true
+  echo: true
+  message: false
+  warning: false
+---
+
+```{r}
+library(tidyverse)
+library(purrr)
+library(lubridate)
+library(kableExtra)
+library(ggforce)
+library(igraph)
+devtools::load_all("../")
+```
+
+```{r}
+org_edge <- read_csv("org_edge_scores.csv")
+```
+
+
+```{r}
+# Plot PZPR Edge CB Score over time
+
+pzpr_edgecb_plot <- 
+  org_edge |> 
+  filter(Org.ID == "ORG01768") |> 
+    ggplot(mapping = aes(x = Start.Date,
+                       y = EB_month_cross)) +
+  geom_line(linewidth = .75) +
+  # geom_point() +
+  labs(title = 'PZPR Orgs Edge-CB Score Over Time',
+       x = 'Year', 
+       y = 'Edge CB Score',
+       color = '') +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+pzpr_edgecb_plot
+```
+
+```{r}
+pzpr_edgecb_plot <- org_edge |>  
+  filter(Org.ID == "ORG01768") |> 
+  ggplot(aes(x = Start.Date)) +
+  geom_line(aes(y = EB_month_cross,   color = "Cross-EB"),
+            linewidth = 0.75) +
+  geom_line(aes(y = EB_month_std,         
+                color = "EB"),
+            linewidth = 0.75) +
+  labs(title = "PZPR org – edge scores over time",
+       x = "Year", y = "Score", color = "") +
+  scale_color_manual(values = c("Cross-EB" = "steelblue",
+                                "EB"   = "firebrick")) +
+  theme_bw() +
+  theme(plot.title  = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+pzpr_edgecb_plot
+```
+```{r}
+apj_edgecb_plot <- org_edge |>  
+  filter(Org.ID == "ORG02006") |> 
+  ggplot(aes(x = Start.Date)) +
+  geom_line(aes(y = EB_month_cross,   color = "Cross-EB"),
+            linewidth = 0.75) +
+  geom_line(aes(y = EB_month_std,         
+                color = "EB"),
+            linewidth = 0.75) +
+  labs(title = "APJ org – edge scores over time",
+       x = "Year", y = "Score", color = "") +
+  scale_color_manual(values = c("Cross-EB" = "steelblue",
+                                "EB"   = "firebrick")) +
+  theme_bw() +
+  theme(plot.title  = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+apj_edgecb_plot
+```
+
+```{r}
+org_meta <- read_csv("../clean_data/organization_meta_info.csv")
+
+```
+```{r}
+org_edge_scores <- org_edge |> 
+  left_join(org_meta) 
+```
+
+```{r}
+
+org_auc_month  <- org_edge %>% 
+  group_by(Org.ID) %>% 
+  summarise(AUC_month_mean = mean(EB_month_cross, na.rm = TRUE),
+            n_months       = n(),
+            .groups = "drop")
+
+org_auc_yearly <- org_edge %>% 
+  mutate(Year = year(Start.Date)) %>% 
+  group_by(Org.ID, Year) %>% 
+  summarise(year_mean = mean(EB_month_cross, na.rm = TRUE),
+            .groups   = "drop") %>% 
+  group_by(Org.ID) %>% 
+  summarise(AUC_year_mean = mean(year_mean, na.rm = TRUE),
+            n_years        = n(),
+            .groups = "drop")
+
+```
+
+
+```{r}
+org_auc_yearly <- org_auc_yearly |> 
+  left_join(org_meta) |> 
+  select(-n_years)
+```
+
+
+```{r}
+org_auc_yearly |> arrange(desc(AUC_year_mean)) |> 
+  slice_max(order_by = AUC_year_mean, n = 50) |> 
+  kable(format = "html", caption = "Highest 20 Aggregated Edge-CB Results") |> 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+```
+
+```{r}
+sol_edgecb_plot <- org_edge |>  
+  filter(Org.ID == "ORG01251") |> 
+  ggplot(aes(x = Start.Date)) +
+  geom_line(aes(y = EB_month_cross,   color = "Cross-EB"),
+            linewidth = 0.75) +
+  geom_line(aes(y = EB_month_std,         
+                color = "EB"),
+            linewidth = 0.75) +
+  labs(title = "SOL org – edge scores over time",
+       x = "Year", y = "Score", color = "") +
+  scale_color_manual(values = c("Cross-EB" = "steelblue",
+                                "EB"   = "firebrick")) +
+  theme_bw() +
+  theme(plot.title  = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+sol_edgecb_plot
+```
+
+
+```{r}
+jfl_edgecb_plot <- org_edge |>  
+  filter(Org.ID == "ORG02243") |> 
+  ggplot(aes(x = Start.Date)) +
+  geom_line(aes(y = EB_month_cross,   color = "Cross-EB"),
+            linewidth = 0.75) +
+  geom_line(aes(y = EB_month_std,         
+                color = "EB"),
+            linewidth = 0.75) +
+  labs(title = "JFL org – edge scores over time",
+       x = "Year", y = "Score", color = "") +
+  scale_color_manual(values = c("Cross-EB" = "steelblue",
+                                "EB"   = "firebrick")) +
+  theme_bw() +
+  theme(plot.title  = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+jfl_edgecb_plot
+```
+
+```{r}
+apj_edgecb_plot <- org_edge |>  
+  filter(Org.ID == "ORG02006") |> 
+  ggplot(aes(x = Start.Date)) +
+  geom_line(aes(y = EB_month_cross,   color = "Cross-EB"),
+            linewidth = 0.75) +
+  geom_line(aes(y = EB_month_std,         
+                color = "EB"),
+            linewidth = 0.75) +
+  labs(title = "APJ org – edge scores over time",
+       x = "Year", y = "Score", color = "") +
+  scale_color_manual(values = c("Cross-EB" = "steelblue",
+                                "EB"   = "firebrick")) +
+  theme_bw() +
+  theme(plot.title  = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+apj_edgecb_plot
+```
+
+```{r}
+psa_edgecb_plot <- org_edge |>  
+  filter(Org.ID == "ORG02573") |> 
+  ggplot(aes(x = Start.Date)) +
+  geom_line(aes(y = EB_month_cross,   color = "Cross-EB"),
+            linewidth = 0.75) +
+  geom_line(aes(y = EB_month_std,         
+                color = "EB"),
+            linewidth = 0.75) +
+  labs(title = "PSA org – edge scores over time",
+       x = "Year", y = "Score", color = "") +
+  scale_color_manual(values = c("Cross-EB" = "steelblue",
+                                "EB"   = "firebrick")) +
+  theme_bw() +
+  theme(plot.title  = element_text(face = "bold", size = 14),
+        legend.text = element_text(size = 12))
+
+psa_edgecb_plot
+```
